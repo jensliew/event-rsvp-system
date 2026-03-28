@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event RSVP System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="nav-content">
+                <h1 class="logo">Event RSVP</h1>
+                <div class="nav-links">
+                    <button class="nav-btn active" data-view="events">Events</button>
+                    <button class="nav-btn" data-view="rsvp">RSVP</button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Events View -->
+        <section id="events-view" class="view active">
+            <div class="view-header">
+                <h2>Upcoming Events</h2>
+                <p class="subtitle">Browse and RSVP to events</p>
+            </div>
+
+            <div id="events-container" class="events-grid">
+                <!-- Events will be loaded here -->
+                <div class="loading">Loading events...</div>
+            </div>
+        </section>
+
+        <!-- RSVP Form View -->
+        <section id="rsvp-view" class="view">
+            <div class="view-header">
+                <h2>RSVP to an Event</h2>
+                <p class="subtitle">Select an event and confirm your attendance</p>
+            </div>
+
+            <div class="rsvp-container">
+                <div class="rsvp-form">
+                    <form id="rsvp-form">
+                        <!-- Event Selection -->
+                        <div class="form-group">
+                            <label for="event-select">Select Event *</label>
+                            <select id="event-select" required>
+                                <option value="">-- Choose an event --</option>
+                            </select>
+                            <div id="event-details" class="event-details hidden">
+                                <p id="event-date"></p>
+                                <p id="event-venue"></p>
+                                <p id="event-description"></p>
+                                <div id="event-stats"></div>
+                            </div>
+                        </div>
+
+                        <!-- Personal Information -->
+                        <div class="form-group">
+                            <label for="full-name">Full Name *</label>
+                            <input
+                                type="text"
+                                id="full-name"
+                                placeholder="John Doe"
+                                required
+                            />
+                        </div>
+
+                        <div class="form-group">
+                            <label for="email">Email Address *</label>
+                            <input
+                                type="email"
+                                id="email"
+                                placeholder="john@example.com"
+                                required
+                            />
+                        </div>
+
+                        <!-- Response -->
+                        <div class="form-group">
+                            <label>Your Response *</label>
+                            <div class="response-options">
+                                <label class="radio-option">
+                                    <input
+                                        type="radio"
+                                        name="response"
+                                        value="Yes"
+                                        required
+                                    />
+                                    <span class="radio-label yes">✓ I'm Attending</span>
+                                </label>
+                                <label class="radio-option">
+                                    <input
+                                        type="radio"
+                                        name="response"
+                                        value="No"
+                                        required
+                                    />
+                                    <span class="radio-label no">✗ Can't Attend</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <button type="submit" class="btn-primary">Submit RSVP</button>
+                    </form>
+
+                    <!-- Success/Error Messages -->
+                    <div id="message-container"></div>
+                </div>
+
+                <!-- Attendees List -->
+                <div class="attendees-sidebar">
+                    <h3>Event Attendees</h3>
+                    <div class="filter-buttons">
+                        <button class="filter-btn active" data-filter="all">All</button>
+                        <button class="filter-btn" data-filter="Yes">Attending</button>
+                        <button class="filter-btn" data-filter="No">Not Attending</button>
+                    </div>
+                    <div id="attendees-list" class="attendees-list">
+                        <p class="empty-state">Select an event to see attendees</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
