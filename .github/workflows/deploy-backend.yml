@@ -44,6 +44,11 @@ jobs:
             --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
             --zip-file fileb://backend/lambda-function.zip
 
+      - name: Wait for Lambda update to complete
+        run: |
+          aws lambda wait function-updated \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
+
       - name: Publish Lambda version
         run: |
           aws lambda publish-version \
