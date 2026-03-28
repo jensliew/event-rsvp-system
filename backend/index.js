@@ -17,6 +17,8 @@ export const handler = async (event) => {
   const queryParams = event.queryStringParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
 
+  console.log('Parsed:', { method, path, pathParams });
+
   // Handle CORS preflight
   if (method === 'OPTIONS') {
     return {
@@ -31,7 +33,7 @@ export const handler = async (event) => {
   try {
     // ========= [1] GET /event/{event_id} =========
     if (method === "GET" && path.startsWith("/event/")) {
-      const eventId = pathParams.event_id;
+      const eventId = path.split('/').pop();
       console.log('Looking for event ID:', eventId);
 
       conn = await mysql.createConnection({
@@ -55,34 +57,41 @@ export const handler = async (event) => {
 
     // ========= [2] GET /stats/{event_id} =========
     if (method === "GET" && path.startsWith("/stats/")) {
-      const eventId = pathParams.event_id;
+      const eventId = path.split('/').pop();
       console.log('Getting stats for:', eventId);
 
-      const responses = ['Yes', 'No'];
-      const keys = responses.map((r) => ({
-        pk: { S: `EVENT#${eventId}` },
-        sk: { S: `RESPONSE#${r}` },
-      }));
+      try {
+        const responses = ['Yes', 'No'];
+        const keys = responses.map((r) => ({
+          pk: { S: `EVENT#${eventId}` },
+          sk: { S: `RESPONSE#${r}` },
+        }));
 
-      const result = await dynamo.send(
-        new BatchGetItemCommand({
-          RequestItems: {
-            "event-rsvp-counts": {
-              Keys: keys
+        const result = await dynamo.send(
+          new BatchGetItemCommand({
+            RequestItems: {
+              "event-rsvp-responses": {
+                Keys: keys
+              }
             }
-          }
-        })
-      );
+          })
+        );
 
-      const items = result.Responses?.["event-rsvp-counts"] || [];
-      const counts = { Yes: 0, No: 0 };
+        const items = result.Responses?.["event-rsvp-responses"] || [];
+        const counts = { Yes: 0, No: 0 };
 
-      for (const item of items) {
-        const key = item.sk.S.split("#")[1];
-        counts[key] = Number(item.count?.N || 0);
+        for (const item of items) {
+          const key = item.sk.S.split("#")[1];
+          counts[key] = Number(item.count?.N || 0);
+        }
+
+        return json(counts);
+      } catch (err) {
+        console.error('Stats error:', err.name, err.message);
+        return json({
+          error: `Stats failed: ${err.name}: ${err.message}`
+        }, 500);
       }
-
-      return json(counts);
     }
 
     // ========= [3] POST /rsvp =========
@@ -107,7 +116,7 @@ export const handler = async (event) => {
             TransactItems: [
               {
                 Put: {
-                  TableName: "event-rsvp-counts",
+                  TableName: "event-rsvp-responses",
                   Item: {
                     pk: { S: `EVENT#${event_id}` },
                     sk: { S: `RESPONDENT#${email}` },
@@ -121,7 +130,7 @@ export const handler = async (event) => {
               },
               {
                 Update: {
-                  TableName: "event-rsvp-counts",
+                  TableName: "event-rsvp-responses",
                   Key: {
                     pk: { S: `EVENT#${event_id}` },
                     sk: { S: `RESPONSE#${response}` }
@@ -161,12 +170,12 @@ export const handler = async (event) => {
 
     // ========= [4] GET /attendees/{event_id} =========
     if (method === "GET" && path.startsWith("/attendees/")) {
-      const eventId = pathParams.event_id;
+      const eventId = path.split('/').pop();
       const responseType = queryParams.response; // optional
 
       const result = await dynamo.send(
         new QueryCommand({
-          TableName: "event-rsvp-counts",
+          TableName: "event-rsvp-responses",
           KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
           ExpressionAttributeValues: {
             ":pk": { S: `EVENT#${eventId}` },
