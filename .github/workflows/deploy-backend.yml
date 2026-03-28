@@ -1,0 +1,53 @@
+name: Deploy Backend to AWS Lambda
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm install --production
+
+      - name: Create deployment package
+        run: |
+          cd backend
+          zip -r lambda-function.zip .
+
+      - name: Deploy to Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://backend/lambda-function.zip
+
+      - name: Publish Lambda version
+        run: |
+          aws lambda publish-version \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
+
+      - name: Deployment complete
+        run: echo "Backend deployed successfully!"
