@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Successful — Event RSVP</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .success-container {
+            max-width: 480px;
+            margin: 80px auto;
+            text-align: center;
+            padding: 2rem;
+        }
+        .success-icon { font-size: 4rem; margin-bottom: 1rem; }
+        .success-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.5rem; color: #16a34a; }
+        .success-subtitle { color: #6b7280; margin-bottom: 2rem; }
+        .success-details { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 1rem; margin-bottom: 2rem; text-align: left; }
+        .success-details p { margin: 0.25rem 0; font-size: 0.95rem; }
+        .btn-home { display: inline-block; padding: 0.75rem 2rem; background: #4f46e5; color: white; border-radius: 8px; text-decoration: none; font-weight: 600; }
+        .btn-home:hover { background: #4338ca; }
+        .loading-msg { color: #6b7280; font-size: 0.9rem; margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="success-container">
+        <div class="success-icon">🎉</div>
+        <div class="success-title">Payment Successful!</div>
+        <div class="success-subtitle">Your registration has been confirmed.</div>
+        <div class="success-details" id="rsvp-details">
+            <p>Confirming your RSVP...</p>
+        </div>
+        <a href="index.html" class="btn-home">Back to Events</a>
+        <p class="loading-msg" id="status-msg"></p>
+    </div>
+
+    <script type="module">
+        import { confirmPaymentRsvp } from './events.js';
+
+        const params = new URLSearchParams(window.location.search);
+        const eventId = params.get('event_id');
+        const fullName = params.get('full_name');
+        const email = params.get('email');
+
+        const detailsDiv = document.getElementById('rsvp-details');
+        const statusMsg = document.getElementById('status-msg');
+
+        async function confirm() {
+            if (!eventId || !fullName || !email) {
+                detailsDiv.innerHTML = '<p>Missing registration details.</p>';
+                return;
+            }
+
+            try {
+                await confirmPaymentRsvp(eventId, fullName, email);
+                detailsDiv.innerHTML = `
+                    <p><strong>Name:</strong> ${fullName}</p>
+                    <p><strong>Email:</strong> ${email}</p>
+                    <p><strong>Status:</strong> ✅ Attending (Paid)</p>
+                `;
+            } catch (err) {
+                statusMsg.textContent = 'Note: ' + (err.message || 'Could not confirm RSVP automatically.');
+                detailsDiv.innerHTML = `
+                    <p><strong>Name:</strong> ${fullName}</p>
+                    <p><strong>Email:</strong> ${email}</p>
+                    <p>Your payment was received. RSVP will be confirmed shortly.</p>
+                `;
+            }
+        }
+
+        confirm();
+    </script>
+</body>
+</html>

@@ -1,10 +1,13 @@
 import mysql from 'mysql2/promise';
+import Stripe from 'stripe';
 import {
   DynamoDBClient,
   BatchGetItemCommand,
   QueryCommand,
   TransactWriteItemsCommand
 } from "@aws-sdk/client-dynamodb";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const dynamo = new DynamoDBClient({ region: process.env.REGION });
 
@@ -212,12 +215,108 @@ export const handler = async (event) => {
       });
 
       const [rows] = await conn.execute(`
-        SELECT event_id, title, description, start_at, venue, banner_url, created_at
+        SELECT event_id, title, description, start_at, venue, banner_url, created_at, registration_fee
         FROM events
         ORDER BY start_at ASC
       `);
 
       return json(rows);
+    }
+
+    // ========= [6] POST /create-checkout-session =========
+    if (method === "POST" && path === "/create-checkout-session") {
+      const { event_id, full_name, email, amount, event_title } = body;
+
+      if (!event_id || !full_name || !email || !amount) {
+        return json({ message: "Missing required fields" }, 400);
+      }
+
+      const successUrl = `${process.env.FRONTEND_URL}/payment-success.html?event_id=${event_id}&full_name=${encodeURIComponent(full_name)}&email=${encodeURIComponent(email)}`;
+      const cancelUrl = `${process.env.FRONTEND_URL}?cancelled=true`;
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        mode: 'payment',
+        customer_email: email,
+        line_items: [
+          {
+            price_data: {
+              currency: 'myr',
+              product_data: {
+                name: `Registration Fee — ${event_title || event_id}`,
+                description: `Paid RSVP for ${full_name}`
+              },
+              unit_amount: Math.round(amount * 100) // convert to cents
+            },
+            quantity: 1
+          }
+        ],
+        metadata: { event_id, full_name, email },
+        success_url: successUrl,
+        cancel_url: cancelUrl
+      });
+
+      return json({ url: session.url });
+    }
+
+    // ========= [7] POST /payment-success =========
+    // Called by frontend after Stripe redirects back — writes RSVP to DynamoDB
+    if (method === "POST" && path === "/payment-success") {
+      const { event_id, full_name, email } = body;
+
+      if (!event_id || !full_name || !email) {
+        return json({ message: "Missing fields" }, 400);
+      }
+
+      const now = Date.now();
+
+      try {
+        await dynamo.send(
+          new TransactWriteItemsCommand({
+            TransactItems: [
+              {
+                Put: {
+                  TableName: "event-rsvp-responses",
+                  Item: {
+                    pk: { S: `EVENT#${event_id}` },
+                    sk: { S: `RESPONDENT#${email}` },
+                    full_name: { S: full_name },
+                    email: { S: email },
+                    response: { S: "Yes" },
+                    payment_status: { S: "paid" },
+                    timestamp: { N: String(now) }
+                  },
+                  ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)"
+                }
+              },
+              {
+                Update: {
+                  TableName: "event-rsvp-responses",
+                  Key: {
+                    pk: { S: `EVENT#${event_id}` },
+                    sk: { S: `RESPONSE#Yes` }
+                  },
+                  UpdateExpression: "ADD #count :one",
+                  ExpressionAttributeNames: { "#count": "count" },
+                  ExpressionAttributeValues: { ":one": { N: "1" } }
+                }
+              }
+            ]
+          })
+        );
+
+        return json({ message: "RSVP recorded after payment!" }, 200);
+      } catch (err) {
+        if (
+          err.name === "TransactionCanceledException" ||
+          err.name === "ConditionalCheckFailedException"
+        ) {
+          // Already RSVP'd — treat as success (idempotent)
+          return json({ message: "Already registered" }, 200);
+        }
+        console.error('DynamoDB error after payment:', err);
+        return json({ error: err.message }, 500);
+      }
     }
 
     // ========= Fallback =========

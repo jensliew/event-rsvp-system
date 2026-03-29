@@ -690,3 +690,34 @@ body {
         font-size: 0.85rem;
     }
 }
+
+/* ============================================
+   Payment / Registration Fee Styles
+   ============================================ */
+.event-fee {
+    display: inline-block;
+    margin: 0.4rem 0 0.6rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.event-fee.free {
+    background: #d1fae5;
+    color: #065f46;
+    border-color: #6ee7b7;
+}
+
+.fee-notice {
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    color: #92400e;
+    margin: 0.5rem 0;
+}

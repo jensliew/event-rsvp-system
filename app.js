@@ -8,6 +8,7 @@ import {
     fetchEventStats,
     fetchAttendees,
     submitRsvp,
+    createCheckoutSession,
     createEventCard,
     displayEventDetails,
     displayAttendees,
@@ -187,28 +188,39 @@ async function handleRsvpSubmit(e) {
     button.disabled = true;
 
     try {
+        const eventDetails = await fetchEventDetails(eventId);
+        const fee = parseFloat(eventDetails?.registration_fee || 0);
+
+        // Paid event — redirect to Stripe Checkout (only for "Yes" responses)
+        if (fee > 0 && response === 'Yes') {
+            showMessage('Redirecting to payment...', 'info');
+            const checkoutUrl = await createCheckoutSession(
+                eventId, fullName, email, fee, eventDetails.title
+            );
+            window.location.href = checkoutUrl;
+            return;
+        }
+
+        // Free event or "No" response — existing flow
         await submitRsvp(eventId, fullName, email, response);
         showMessage('✓ RSVP submitted successfully!', 'success');
         getElement(selectors.rsvpForm).reset();
         await loadAttendees(eventId);
         await loadEvents();
-        
+
         setTimeout(() => {
             getElement(selectors.eventDetails).classList.add('hidden');
             getElement(selectors.eventSelect).value = '';
         }, 2000);
     } catch (error) {
         console.log('RSVP Error caught:', error);
-        console.log('Error message:', error.message);
-        console.log('Error type:', typeof error.message);
 
         let message = 'Failed to submit RSVP';
         let type = 'error';
-
         const errorMsg = error.message || '';
 
         if (errorMsg.includes('already RSVP') || errorMsg.includes('DUPLICATE_RSVP')) {
-            message = `❌ This email address has already been used to RSVP for this event. Each email can only RSVP once.`;
+            message = `❌ This email address has already been used to RSVP for this event.`;
             type = 'warning';
         } else if (errorMsg.includes('Missing fields')) {
             message = 'Please fill in all required fields';
