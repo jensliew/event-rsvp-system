@@ -193,9 +193,13 @@ async function handleRsvpSubmit(e) {
 
         // Paid event — redirect to Stripe Checkout (only for "Yes" responses)
         if (fee > 0 && response === 'Yes') {
+            if (!eventDetails.stripe_price_id) {
+                showMessage('Payment not configured for this event. Please contact the organiser.', 'error');
+                return;
+            }
             showMessage('Redirecting to payment...', 'info');
             await createCheckoutSession(
-                eventId, fullName, email, fee, eventDetails.title
+                eventId, fullName, email, fee, eventDetails.title, eventDetails.stripe_price_id
             );
             return;
         }

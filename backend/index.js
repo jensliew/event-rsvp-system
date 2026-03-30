@@ -212,7 +212,7 @@ export const handler = async (event) => {
       });
 
       const [rows] = await conn.execute(`
-        SELECT event_id, title, description, start_at, venue, banner_url, created_at, registration_fee
+        SELECT event_id, title, description, start_at, venue, banner_url, created_at, registration_fee, stripe_price_id
         FROM events
         ORDER BY start_at ASC
       `);

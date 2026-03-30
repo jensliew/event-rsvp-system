@@ -42,24 +42,14 @@ export const fetchAttendees = (eventId, filter = null) =>
 /**
  * Redirect user to Stripe Checkout using Stripe.js (frontend-only, no Lambda call)
  */
-export async function createCheckoutSession(eventId, fullName, email, amount, eventTitle) {
+export async function createCheckoutSession(eventId, fullName, email, amount, eventTitle, stripePriceId) {
     const stripe = Stripe('pk_test_51S94iyHq8UNVfgKsINHjMSQwzB5as8qwXcSU3rULAoeR5BDgg38nPC4VWbcX280g29tbFJsw8GYtdKhz1G8kuO2J00nEoVWrdL');
 
     const successUrl = `${window.location.origin}/payment-success.html?event_id=${eventId}&full_name=${encodeURIComponent(fullName)}&email=${encodeURIComponent(email)}`;
     const cancelUrl = `${window.location.origin}/index.html?cancelled=true`;
 
     const { error } = await stripe.redirectToCheckout({
-        lineItems: [{
-            price_data: {
-                currency: 'myr',
-                product_data: {
-                    name: `Registration Fee — ${eventTitle || eventId}`,
-                    description: `Paid RSVP for ${fullName}`
-                },
-                unit_amount: Math.round(amount * 100) // convert to cents
-            },
-            quantity: 1
-        }],
+        lineItems: [{ price: stripePriceId, quantity: 1 }],
         mode: 'payment',
         customerEmail: email,
         successUrl,
