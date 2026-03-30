@@ -1,13 +1,10 @@
 import mysql from 'mysql2/promise';
-import Stripe from 'stripe';
 import {
   DynamoDBClient,
   BatchGetItemCommand,
   QueryCommand,
   TransactWriteItemsCommand
 } from "@aws-sdk/client-dynamodb";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const dynamo = new DynamoDBClient({ region: process.env.REGION });
 
@@ -223,43 +220,7 @@ export const handler = async (event) => {
       return json(rows);
     }
 
-    // ========= [6] POST /create-checkout-session =========
-    if (method === "POST" && path === "/create-checkout-session") {
-      const { event_id, full_name, email, amount, event_title } = body;
-
-      if (!event_id || !full_name || !email || !amount) {
-        return json({ message: "Missing required fields" }, 400);
-      }
-
-      const successUrl = `${process.env.FRONTEND_URL}/payment-success.html?event_id=${event_id}&full_name=${encodeURIComponent(full_name)}&email=${encodeURIComponent(email)}`;
-      const cancelUrl = `${process.env.FRONTEND_URL}?cancelled=true`;
-
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        mode: 'payment',
-        customer_email: email,
-        line_items: [
-          {
-            price_data: {
-              currency: 'myr',
-              product_data: {
-                name: `Registration Fee — ${event_title || event_id}`,
-                description: `Paid RSVP for ${full_name}`
-              },
-              unit_amount: Math.round(amount * 100) // convert to cents
-            },
-            quantity: 1
-          }
-        ],
-        metadata: { event_id, full_name, email },
-        success_url: successUrl,
-        cancel_url: cancelUrl
-      });
-
-      return json({ url: session.url });
-    }
-
-    // ========= [7] POST /payment-success =========
+    // ========= [6] POST /payment-success =========
     // Called by frontend after Stripe redirects back — writes RSVP to DynamoDB
     if (method === "POST" && path === "/payment-success") {
       const { event_id, full_name, email } = body;
