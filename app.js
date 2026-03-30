@@ -194,10 +194,9 @@ async function handleRsvpSubmit(e) {
         // Paid event — redirect to Stripe Checkout (only for "Yes" responses)
         if (fee > 0 && response === 'Yes') {
             showMessage('Redirecting to payment...', 'info');
-            const checkoutUrl = await createCheckoutSession(
+            await createCheckoutSession(
                 eventId, fullName, email, fee, eventDetails.title
             );
-            window.location.href = checkoutUrl;
             return;
         }
 

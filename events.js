@@ -19,7 +19,6 @@ const api = {
         return url.toString();
     },
     rsvp: `${API_BASE_URL}/rsvp`,
-    checkout: `${API_BASE_URL}/create-checkout-session`,
     paymentSuccess: `${API_BASE_URL}/payment-success`
 };
 
@@ -41,17 +40,34 @@ export const fetchAttendees = (eventId, filter = null) =>
     apiFetch(api.attendees(eventId, filter), {}, []);
 
 /**
- * Redirect user to Stripe Checkout for paid events
+ * Redirect user to Stripe Checkout using Stripe.js (frontend-only, no Lambda call)
  */
 export async function createCheckoutSession(eventId, fullName, email, amount, eventTitle) {
-    const response = await fetch(api.checkout, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event_id: eventId, full_name: fullName, email, amount, event_title: eventTitle })
+    const stripe = Stripe('pk_test_51S94iyHq8UNVfgKsINHjMSQwzB5as8qwXcSU3rULAoeR5BDgg38nPC4VWbcX280g29tbFJsw8GYtdKhz1G8kuO2J00nEoVWrdL');
+
+    const successUrl = `${window.location.origin}/payment-success.html?event_id=${eventId}&full_name=${encodeURIComponent(fullName)}&email=${encodeURIComponent(email)}`;
+    const cancelUrl = `${window.location.origin}/index.html?cancelled=true`;
+
+    const { error } = await stripe.redirectToCheckout({
+        lineItems: [{
+            price_data: {
+                currency: 'myr',
+                product_data: {
+                    name: `Registration Fee — ${eventTitle || eventId}`,
+                    description: `Paid RSVP for ${fullName}`
+                },
+                unit_amount: Math.round(amount * 100) // convert to cents
+            },
+            quantity: 1
+        }],
+        mode: 'payment',
+        customerEmail: email,
+        successUrl,
+        cancelUrl
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Failed to create checkout session');
-    return data.url; // Stripe hosted checkout URL
+
+    // Only reaches here if redirect failed
+    if (error) throw new Error(error.message);
 }
 
 /**
