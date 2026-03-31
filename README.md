@@ -1,271 +1,405 @@
 # Event RSVP System
 
-A full-stack event management and RSVP system built with vanilla JavaScript frontend and AWS Lambda backend, deployed to production using GitHub Actions CI/CD.
+A production-grade, full-stack event management and RSVP platform built on AWS serverless infrastructure. The system supports event browsing, real-time attendance tracking, RSVP submission, and integrated payment processing for paid events — all deployed via automated CI/CD pipelines.
 
-## 📋 Table of Contents
+> Live Demo: https://d2uvl29py5b87v.cloudfront.net
+
+---
+
+## Table of Contents
 
 - [System Overview](#system-overview)
-- [Prerequisites](#prerequisites)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [AWS Infrastructure](#aws-infrastructure)
+- [Payment Gateway Integration](#payment-gateway-integration)
+- [CI/CD Pipeline](#cicd-pipeline)
 - [Project Structure](#project-structure)
-- [Setup Instructions](#setup-instructions)
-- [Local Development](#local-development)
-- [Deployment](#deployment)
-- [API Endpoints](#api-endpoints)
-- [Troubleshooting](#troubleshooting)
+- [API Reference](#api-reference)
+- [Database Design](#database-design)
+- [Security Design](#security-design)
+- [Setup Guide](#setup-guide)
 
 ---
 
-## 🎯 System Overview
+## System Overview
 
-The Event RSVP System allows users to:
-- View upcoming events with details (date, venue, description, banner image)
-- See real-time RSVP statistics (Yes/No attendance counts)
-- Submit RSVP responses with email validation
-- View attendee lists filtered by response type
+The Event RSVP System is a serverless web application that enables event organisers to manage events and participants to register their attendance. Key capabilities include:
 
-**Tech Stack:**
-- **Frontend:** HTML5, CSS3, Vanilla JavaScript (ES6 modules)
-- **Backend:** AWS Lambda (Node.js 18), Express-style routing
-- **Database:** AWS RDS MySQL (events), AWS DynamoDB (RSVP responses)
-- **Storage:** AWS S3 (banners), AWS CloudFront CDN
-- **CI/CD:** GitHub Actions (auto-deploy on git push)
-- **Infrastructure:** AWS API Gateway, IAM roles/policies
+- Browse upcoming events with banners, descriptions, venue and date
+- Real-time RSVP statistics (attending vs not attending)
+- RSVP form with duplicate prevention per email per event
+- Attendee list with response filtering
+- Payment gateway integration for paid events — participants are redirected to Stripe Checkout before their RSVP is confirmed
+- Free and paid events coexist — payment is only triggered when an event has a registration fee configured
 
 ---
 
-## 📦 Prerequisites
-
-### Required Tools
-- **Git** — version control
-- **Node.js 18+** — for local Lambda testing and deployment
-- **Python 3** — for running local dev server
-- **AWS Account** — with appropriate permissions
-- **GitHub Account** — repository hosting and Actions
-
-### AWS Resources Needed
-1. **RDS MySQL Database** — for events table
-   - Table: `events` with columns: `event_id`, `title`, `description`, `start_at`, `venue`, `banner_url`, `created_at`
-
-2. **DynamoDB Table** — for RSVP responses
-   - Name: `event-rsvp-responses`
-   - Partition key: `pk` (String)
-   - Sort key: `sk` (String)
-
-3. **S3 Bucket** — for banner images (public read access)
-
-4. **CloudFront Distribution** — CDN for banners
-
-5. **Lambda Function** — backend API (Node.js 18.x)
-
-6. **API Gateway HTTP API** — with routes: `/events`, `/event/{event_id}`, `/stats/{event_id}`, `/attendees/{event_id}`, `/rsvp`
-
-### Lambda Execution Role Policy
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "dynamodb:BatchGetItem",
-        "dynamodb:Query",
-        "dynamodb:TransactWriteItems",
-        "dynamodb:GetItem",
-        "dynamodb:PutItem",
-        "dynamodb:UpdateItem"
-      ],
-      "Resource": "arn:aws:dynamodb:ap-southeast-1:*:table/event-rsvp-responses"
-    }
-  ]
-}
-```
-
----
-
-## 📁 Project Structure
+## Architecture
 
 ```
-event-rsvp-tutorial/
-├── app.js                          # Main app logic, view switching
-├── events.js                       # Event API calls, rendering
-├── utils.js                        # Utilities: fetch, formatting, validation
-├── index.html                      # Single-page app HTML
-├── style.css                       # Responsive CSS styling
+User Browser
+     │
+     ▼
+Amazon CloudFront (CDN)
+     │
+     ▼
+Amazon S3 (Static Frontend)
+app.js / events.js / utils.js / index.html / style.css / payment-success.html
+     │
+     │ API calls
+     ▼
+Amazon API Gateway (HTTP API)
+     │
+     ▼
+AWS Lambda (Node.js 24 — single function, multi-route handler)
+     │
+     ├──── Amazon RDS MySQL (event metadata)
+     │         events table: title, venue, date, fee, payment_link
+     │
+     ├──── Amazon DynamoDB (RSVP responses)
+     │         event-rsvp-responses table: attendee records, payment status
+     │
+     └──── Stripe Payment Links (external — browser redirect, no Lambda call)
+               Stripe hosted checkout → payment-success.html → Lambda confirms RSVP
+```
+
+### Key Architectural Decisions
+
+**Hybrid database strategy:** Event metadata (structured, relational) is stored in RDS MySQL. RSVP responses (high write throughput, key-value access pattern) are stored in DynamoDB. This separates concerns and optimises each storage layer for its use case.
+
+**VPC-constrained Lambda:** Lambda runs inside a VPC to access the private RDS instance. DynamoDB is accessed via a VPC Endpoint, keeping all AWS service traffic off the public internet. Stripe integration uses a browser-redirect Payment Link pattern to avoid requiring outbound internet access from Lambda — eliminating the need for a NAT Gateway and keeping the architecture within AWS Free Tier.
+
+**Single Lambda function:** All API routes are handled by one Lambda function using path-based routing. This reduces cold start overhead and simplifies deployment.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | HTML5, CSS3, Vanilla JavaScript (ES6 modules) |
+| Backend | AWS Lambda, Node.js 24 |
+| Event Database | AWS RDS MySQL |
+| RSVP Database | AWS DynamoDB |
+| API Layer | AWS API Gateway (HTTP API v2) |
+| CDN | AWS CloudFront |
+| Static Hosting | AWS S3 |
+| Payment | Stripe Payment Links |
+| CI/CD | GitHub Actions |
+| Networking | AWS VPC, Subnets, Security Groups, VPC Endpoints |
+
+---
+
+## AWS Infrastructure
+
+### Amazon RDS MySQL
+- Hosts the `events` table containing event metadata
+- Deployed inside a private VPC subnet — not publicly accessible
+- Lambda connects via private VPC routing
+- Schema managed via versioned SQL migration files
+
+### Amazon DynamoDB
+- Hosts the `event-rsvp-responses` table
+- Composite key design: `pk = EVENT#<id>`, `sk = RESPONDENT#<email>` for individual records
+- Aggregate counters stored at `sk = RESPONSE#Yes` and `sk = RESPONSE#No`
+- Accessed from Lambda via a VPC Gateway Endpoint — traffic never leaves AWS network
+- Conditional writes enforce one RSVP per email per event (duplicate prevention)
+- Transactional writes (`TransactWriteItems`) ensure atomic updates to both the individual record and the aggregate counter
+
+### AWS Lambda
+- Runtime: Node.js 24
+- Single function handles all 7 API routes
+- Deployed inside VPC for private RDS access
+- IAM execution role scoped to minimum required DynamoDB actions
+- Environment variables: `DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME`, `REGION`
+
+### Amazon API Gateway (HTTP API v2)
+- Routes all HTTP requests to Lambda
+- CORS configured to allow requests from CloudFront origin
+- Routes: `GET /events`, `GET /event/{event_id}`, `GET /stats/{event_id}`, `GET /attendees/{event_id}`, `POST /rsvp`, `POST /rsvp-pending`, `POST /payment-success`
+
+### Amazon S3 + CloudFront
+- S3 bucket hosts all static frontend assets
+- CloudFront distribution serves assets globally with caching
+- Cache invalidation triggered automatically on every deployment via GitHub Actions
+
+### VPC & Networking
+- Lambda and RDS deployed within the same VPC
+- RDS in private subnet — no public IP, no internet exposure
+- Lambda security group: outbound port 3306 to RDS security group only
+- DynamoDB VPC Gateway Endpoint: DynamoDB traffic routed internally, not via internet
+
+---
+
+## Payment Gateway Integration
+
+### Overview
+
+Paid events require participants to complete a Stripe payment before their RSVP is confirmed. The integration uses Stripe Payment Links — a no-code hosted checkout solution — to avoid requiring Lambda to make outbound calls to Stripe's API (which would require a NAT Gateway in the VPC setup).
+
+### Payment Flow
+
+```
+1. User fills RSVP form and selects "I'm Attending"
+        │
+        ▼
+2. Frontend detects registration_fee > 0 on the event
+        │
+        ▼
+3. POST /rsvp-pending → Lambda writes RSVP with payment_status = "pending" to DynamoDB
+        │
+        ▼
+4. Frontend saves {event_id, full_name, email} to localStorage
+        │
+        ▼
+5. Browser redirects to Stripe Payment Link URL (prefilled_email appended)
+        │
+        ▼
+6. User completes payment on Stripe hosted checkout
+        │
+        ▼
+7. Stripe redirects to payment-success.html
+        │
+        ▼
+8. Frontend reads localStorage, calls POST /payment-success
+        │
+        ▼
+9. Lambda updates DynamoDB record: payment_status = "paid", increments Yes count
+        │
+        ▼
+10. User sees confirmation with name, email, and paid status
+```
+
+### Why This Architecture
+
+Standard Stripe integration requires a server-side API call to create a Checkout Session. Lambda inside a VPC without a NAT Gateway cannot make outbound calls to `api.stripe.com`. Rather than introducing a NAT Gateway (which incurs cost and breaks Free Tier), the integration uses Stripe Payment Links — pre-created in the Stripe Dashboard — which are simple redirect URLs requiring no server-side Stripe API call.
+
+### Per-Event Configuration
+
+Each paid event requires:
+1. A product and Payment Link created in the Stripe Dashboard
+2. `registration_fee` set in the RDS `events` table (e.g. `25.00`)
+3. `payment_link` set in the RDS `events` table (e.g. `https://buy.stripe.com/xxx`)
+
+Free events have `registration_fee = NULL` and follow the standard RSVP flow with no payment step.
+
+---
+
+## CI/CD Pipeline
+
+Both frontend and backend deployments are fully automated via GitHub Actions. Pushing to the `main` branch triggers the relevant pipeline based on which files changed.
+
+### Frontend Pipeline (deploy-frontend.yml)
+
+**Trigger:** Push to `main` affecting any of: `app.js`, `events.js`, `utils.js`, `index.html`, `style.css`, `payment-success.html`
+
+**Steps:**
+1. Checkout repository
+2. Configure AWS credentials via GitHub Secrets
+3. Upload each frontend file to S3 using `aws s3 cp`
+4. Invalidate CloudFront cache (`/*`) to ensure users receive the latest version immediately
+
+### Backend Pipeline (deploy-backend.yml)
+
+**Trigger:** Push to `main` affecting `backend/**`
+
+**Steps:**
+1. Checkout repository
+2. Configure AWS credentials via GitHub Secrets
+3. Set up Node.js 18
+4. Run `npm install --production` to install dependencies
+5. Zip entire `backend/` directory into `lambda-function.zip`
+6. Deploy to Lambda via `aws lambda update-function-code`
+7. Wait for update to complete (`lambda wait function-updated`)
+8. Publish new Lambda version
+
+### GitHub Secrets Required
+
+| Secret | Description |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | IAM user access key |
+| `AWS_SECRET_ACCESS_KEY` | IAM user secret key |
+| `AWS_REGION` | AWS region (e.g. `ap-southeast-1`) |
+| `S3_BUCKET_NAME` | S3 bucket name for frontend assets |
+| `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront distribution ID |
+| `LAMBDA_FUNCTION_NAME` | Lambda function name |
+
+---
+
+## Project Structure
+
+```
+event-rsvp-system/
+├── index.html                          # Main SPA entry point
+├── app.js                              # Application logic, view management, form handling
+├── events.js                           # Event API calls, rendering, payment redirect
+├── utils.js                            # Shared utilities: fetch wrapper, validation, formatting
+├── style.css                           # Responsive styling
+├── payment-success.html                # Post-payment confirmation page
 │
 ├── backend/
-│   ├── index.js                    # Lambda handler, all API endpoints
-│   ├── package.json                # Dependencies
-│   └── package-lock.json
+│   ├── index.js                        # Lambda handler — all API routes
+│   ├── package.json                    # Node.js dependencies
+│   ├── package-lock.json
+│   └── migrations/
+│       ├── add_registration_fee.sql    # Adds registration_fee + payment_link columns
+│       └── cleanup_unused_columns.sql  # Removes deprecated columns
 │
-├── .github/workflows/
-│   ├── deploy-frontend.yml         # Frontend S3 + CloudFront deployment
-│   └── deploy-backend.yml          # Backend Lambda deployment
-│
-├── .gitignore                      # Git ignore rules
-└── README.md                       # This file
+└── .github/
+    └── workflows/
+        ├── deploy-frontend.yml         # S3 + CloudFront deployment pipeline
+        └── deploy-backend.yml          # Lambda deployment pipeline
 ```
 
 ---
 
-## 🚀 Setup Instructions
+## API Reference
 
-### Step 1: Clone Repository
+### GET /events
+Returns all upcoming events ordered by date.
 
-```bash
-git clone https://github.com/jensliew/event-rsvp-system.git
-cd event-rsvp-system
+**Response:**
+```json
+[
+  {
+    "event_id": "aws-meetup-kl-2026",
+    "title": "AWS User Group KL Meetup",
+    "description": "...",
+    "start_at": "2026-04-15T09:00:00",
+    "venue": "Kuala Lumpur",
+    "banner_url": "https://...",
+    "registration_fee": "30.00",
+    "payment_link": "https://buy.stripe.com/test_xxx"
+  }
+]
 ```
 
-### Step 2: Configure AWS Resources
+### GET /event/{event_id}
+Returns full details for a single event.
 
-1. Create RDS MySQL database and events table
-2. Create DynamoDB table `event-rsvp-responses` with `pk` and `sk` keys
-3. Create S3 bucket and enable static website hosting
-4. Create CloudFront distribution pointing to S3
-5. Create Lambda function with Node.js 18.x runtime
-6. Create API Gateway HTTP API with all required routes
-7. Attach DynamoDB permissions to Lambda execution role
+### GET /stats/{event_id}
+Returns RSVP counts for an event.
 
-### Step 3: Update Environment Variables
+**Response:** `{ "Yes": 12, "No": 3 }`
 
-**`events.js` — Frontend API endpoint:**
-```javascript
-const API_BASE_URL = 'https://YOUR_API_GATEWAY_DOMAIN.execute-api.ap-southeast-1.amazonaws.com';
+### GET /attendees/{event_id}?response=Yes
+Returns attendee list, optionally filtered by response (`Yes` or `No`).
+
+### POST /rsvp
+Submits a free event RSVP. Prevents duplicate submissions per email per event.
+
+**Body:** `{ "event_id", "full_name", "email", "response" }`
+
+### POST /rsvp-pending
+Saves a pending RSVP record before redirecting to Stripe. Called by frontend prior to payment redirect.
+
+**Body:** `{ "event_id", "full_name", "email" }`
+
+### POST /payment-success
+Confirms a paid RSVP after successful Stripe payment. Updates `payment_status` from `pending` to `paid` and increments the Yes attendance counter.
+
+**Body:** `{ "event_id", "full_name", "email" }`
+
+---
+
+## Database Design
+
+### RDS MySQL — `events` table
+
+| Column | Type | Description |
+|---|---|---|
+| `event_id` | VARCHAR | Primary key, URL-friendly slug |
+| `title` | VARCHAR | Event name |
+| `description` | TEXT | Event description |
+| `start_at` | DATETIME | Event date and time |
+| `venue` | VARCHAR | Event location |
+| `banner_url` | VARCHAR | S3/CloudFront image URL |
+| `registration_fee` | DECIMAL(10,2) | NULL = free, value = paid |
+| `payment_link` | VARCHAR(500) | Stripe Payment Link URL |
+
+### DynamoDB — `event-rsvp-responses` table
+
+| pk | sk | Description |
+|---|---|---|
+| `EVENT#<id>` | `RESPONDENT#<email>` | Individual RSVP record |
+| `EVENT#<id>` | `RESPONSE#Yes` | Aggregate Yes counter |
+| `EVENT#<id>` | `RESPONSE#No` | Aggregate No counter |
+
+**Attributes on RSVP record:** `full_name`, `email`, `response`, `payment_status` (`pending` / `paid`), `timestamp`
+
+---
+
+## Security Design
+
+- **RDS** is deployed in a private subnet with no public IP. Access is restricted to Lambda's security group on port 3306 only.
+- **DynamoDB** is accessed via a VPC Gateway Endpoint. Traffic never traverses the public internet.
+- **Lambda IAM role** is scoped to minimum required actions: `BatchGetItem`, `Query`, `TransactWriteItems`, `UpdateItem` on the specific DynamoDB table ARN only.
+- **Stripe secret key** is never used in the frontend or exposed to the browser. Payment Links use only a pre-created URL with no sensitive credentials.
+- **API Gateway** has CORS configured to restrict allowed origins.
+- **GitHub Secrets** store all credentials — no hardcoded keys in source code.
+
+---
+
+## Setup Guide
+
+### Prerequisites
+- AWS account with appropriate IAM permissions
+- Stripe account (free)
+- GitHub repository
+
+### 1. AWS Resources
+
+Create the following in order:
+1. VPC with private subnet (for RDS) and public subnet
+2. RDS MySQL instance in private subnet
+3. DynamoDB table `event-rsvp-responses` with `pk` (String) and `sk` (String) keys
+4. S3 bucket with static website hosting enabled
+5. CloudFront distribution pointing to S3
+6. Lambda function (Node.js 24, inside VPC)
+7. DynamoDB VPC Gateway Endpoint associated with Lambda's subnet route table
+8. API Gateway HTTP API with all routes integrated to Lambda
+
+### 2. Run Database Migrations
+
+```sql
+ALTER TABLE events ADD COLUMN registration_fee DECIMAL(10,2) DEFAULT NULL;
+ALTER TABLE events ADD COLUMN payment_link VARCHAR(500) DEFAULT NULL;
 ```
 
-**Lambda environment variables (via Lambda console):**
-```
-DB_HOST=your-rds-endpoint
-DB_USER=admin
-DB_PASS=your-password
-DB_NAME=events_db
-REGION=ap-southeast-1
-```
+### 3. Lambda Environment Variables
 
-### Step 4: Add GitHub Secrets
-
-Go to repo → Settings → Secrets and Variables → Actions:
+Set in Lambda console → Configuration → Environment variables:
 
 ```
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-AWS_REGION
-S3_BUCKET_NAME
-CLOUDFRONT_DISTRIBUTION_ID
-LAMBDA_FUNCTION_NAME
+DB_HOST     = your-rds-endpoint.rds.amazonaws.com
+DB_USER     = your-db-username
+DB_PASS     = your-db-password
+DB_NAME     = your-database-name
+REGION      = ap-southeast-1
 ```
 
-### Step 5: Push Code
+### 4. Configure Stripe (for paid events)
+
+1. Create a product in Stripe Dashboard → set price in MYR
+2. Create a Payment Link → set redirect URL to `https://your-cloudfront-domain/payment-success.html`
+3. Copy the Payment Link URL
+4. Update the event in RDS: `UPDATE events SET registration_fee = 30.00, payment_link = 'https://buy.stripe.com/xxx' WHERE event_id = 'your-event-id'`
+
+### 5. GitHub Secrets
+
+Add all secrets listed in the CI/CD section to your repository.
+
+### 6. Deploy
 
 ```bash
 git add .
-git commit -m "Initial setup"
+git commit -m "Initial deployment"
 git push origin main
 ```
 
-GitHub Actions will auto-deploy to S3/CloudFront and Lambda.
+GitHub Actions handles the rest.
 
 ---
 
-## 💻 Local Development
-
-### Run Frontend Locally
-
-```bash
-python3 -m http.server 8000
-# Open http://localhost:8000
-```
-
-### Backend Testing
-
-```bash
-cd backend
-npm install
-# Test with AWS SAM or Lambda testing tools
-```
-
----
-
-## 🔄 Deployment
-
-### Automatic (GitHub Actions)
-
-- **Frontend:** Triggered by changes to `app.js`, `events.js`, `utils.js`, `index.html`, `style.css`
-- **Backend:** Triggered by changes to `backend/**`
-
-### Manual
-
-**Frontend:**
-```bash
-aws s3 sync . s3://bucket --exclude 'backend/*' --exclude '.git/*'
-aws cloudfront create-invalidation --distribution-id ID --paths "/*"
-```
-
-**Backend:**
-```bash
-cd backend && npm install --production && zip -r lambda-function.zip .
-aws lambda update-function-code --function-name NAME --zip-file fileb://lambda-function.zip
-```
-
----
-
-## 🔌 API Endpoints
-
-### GET /events
-List all events
-
-### GET /event/{event_id}
-Single event details
-
-### GET /stats/{event_id}
-RSVP counts: `{"Yes": 5, "No": 2}`
-
-### GET /attendees/{event_id}?response=Yes
-Attendee list (optionally filtered)
-
-### POST /rsvp
-Submit RSVP: `{"event_id", "full_name", "email", "response"}`
-
----
-
-## 🐛 Troubleshooting
-
-**Events not loading:**
-- Verify `API_BASE_URL` in `events.js`
-- Check Lambda CloudWatch logs
-- Confirm CORS headers in Lambda response
-
-**500 errors on /stats:**
-1. Check CloudWatch logs: `/aws/lambda/your-function`
-2. Verify DynamoDB table `event-rsvp-responses` exists
-3. Confirm Lambda execution role has DynamoDB permissions
-4. Test: `curl https://your-api/stats/event-id`
-
-**Images not showing:**
-- Verify S3 bucket public read access
-- Check CloudFront URL in database
-
-**"Resource not found" error:**
-- Verify API Gateway routes are created and deployed
-- Confirm Lambda integration on each route
-
----
-
-## 📝 Key Implementation Notes
-
-1. **HTTP API Gateway**: Uses path parsing since HTTP API doesn't populate `pathParameters`:
-   ```javascript
-   const eventId = event.requestContext.http.path.split('/').pop();
-   ```
-
-2. **DynamoDB Design**: Composite keys for efficient queries
-   - Partition: `EVENT#id`, Sort: `RESPONSE#Yes/No` or `RESPONDENT#email`
-
-3. **Duplicate Prevention**: DynamoDB conditional writes ensure one email per event
-
-4. **CORS**: Enabled for all origins to support CloudFront and localhost
-
----
-
-Last updated: March 28, 2026
+*Last updated: March 2026*

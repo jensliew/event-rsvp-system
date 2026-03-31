@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "name": "Update Deploy YMLs on New File",
+  "description": "When a new frontend or backend file is created, check if the deploy YMLs need to be updated to include it",
+  "version": "1",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "*.html",
+      "*.js",
+      "*.css",
+      "backend/*.js"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A new file was just created. Check if it is a frontend file (*.html, *.js, *.css at root level) or a backend file (under backend/). If it's a new root-level frontend file, update .github/workflows/deploy-frontend.yml to add it to both the 'paths' trigger and the 'aws s3 cp' upload step. If it's a backend file, no yml change is needed since backend/** already covers it. Do not make changes if the file is not deployable (e.g. migration sql, config, readme)."
+  }
+}
