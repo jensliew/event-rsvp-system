@@ -10,6 +10,7 @@ on:
       - 'utils.js'
       - 'index.html'
       - 'style.css'
+      - 'payment-success.html'
       - '.github/workflows/deploy-frontend.yml'
 
 jobs:
@@ -34,6 +35,7 @@ jobs:
           aws s3 cp events.js s3://${{ secrets.S3_BUCKET_NAME }}/events.js
           aws s3 cp utils.js s3://${{ secrets.S3_BUCKET_NAME }}/utils.js
           aws s3 cp style.css s3://${{ secrets.S3_BUCKET_NAME }}/style.css
+          aws s3 cp payment-success.html s3://${{ secrets.S3_BUCKET_NAME }}/payment-success.html
 
       - name: Invalidate CloudFront cache
         run: |
