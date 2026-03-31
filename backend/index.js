@@ -16,7 +16,7 @@ export const handler = async (event) => {
   const queryParams = event.queryStringParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
 
-  console.log('Parsed:', { method, path, pathParams });
+  console.log('Parsed:', { method, path });
 
   // Handle CORS preflight
   if (method === 'OPTIONS') {
