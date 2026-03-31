@@ -37,31 +37,31 @@
     <script type="module">
         import { confirmPaymentRsvp } from './events.js';
 
-        const params = new URLSearchParams(window.location.search);
-        const eventId = params.get('event_id');
-        const fullName = params.get('full_name');
-        const email = params.get('email');
-
         const detailsDiv = document.getElementById('rsvp-details');
         const statusMsg = document.getElementById('status-msg');
 
         async function confirm() {
-            if (!eventId || !fullName || !email) {
-                detailsDiv.innerHTML = '<p>Missing registration details.</p>';
+            // Read user details saved before redirect to Stripe
+            const stored = localStorage.getItem('pending_rsvp');
+            if (!stored) {
+                detailsDiv.innerHTML = '<p>No pending registration found. If you just paid, your RSVP will be confirmed shortly.</p>';
                 return;
             }
 
+            const { event_id, full_name, email } = JSON.parse(stored);
+
             try {
-                await confirmPaymentRsvp(eventId, fullName, email);
+                await confirmPaymentRsvp(event_id, full_name, email);
+                localStorage.removeItem('pending_rsvp');
                 detailsDiv.innerHTML = `
-                    <p><strong>Name:</strong> ${fullName}</p>
+                    <p><strong>Name:</strong> ${full_name}</p>
                     <p><strong>Email:</strong> ${email}</p>
                     <p><strong>Status:</strong> ✅ Attending (Paid)</p>
                 `;
             } catch (err) {
                 statusMsg.textContent = 'Note: ' + (err.message || 'Could not confirm RSVP automatically.');
                 detailsDiv.innerHTML = `
-                    <p><strong>Name:</strong> ${fullName}</p>
+                    <p><strong>Name:</strong> ${full_name}</p>
                     <p><strong>Email:</strong> ${email}</p>
                     <p>Your payment was received. RSVP will be confirmed shortly.</p>
                 `;

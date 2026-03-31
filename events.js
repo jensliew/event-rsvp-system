@@ -19,6 +19,7 @@ const api = {
         return url.toString();
     },
     rsvp: `${API_BASE_URL}/rsvp`,
+    rsvpPending: `${API_BASE_URL}/rsvp-pending`,
     paymentSuccess: `${API_BASE_URL}/payment-success`
 };
 
@@ -40,24 +41,27 @@ export const fetchAttendees = (eventId, filter = null) =>
     apiFetch(api.attendees(eventId, filter), {}, []);
 
 /**
- * Redirect user to Stripe Checkout using Stripe.js (frontend-only, no Lambda call)
+ * Save pending RSVP then redirect to Stripe Payment Link
  */
-export async function createCheckoutSession(eventId, fullName, email, amount, eventTitle, stripePriceId) {
-    const stripe = Stripe('pk_test_51S94iyHq8UNVfgKsINHjMSQwzB5as8qwXcSU3rULAoeR5BDgg38nPC4VWbcX280g29tbFJsw8GYtdKhz1G8kuO2J00nEoVWrdL');
-
-    const successUrl = `${window.location.origin}/payment-success.html?event_id=${eventId}&full_name=${encodeURIComponent(fullName)}&email=${encodeURIComponent(email)}`;
-    const cancelUrl = `${window.location.origin}/index.html?cancelled=true`;
-
-    const { error } = await stripe.redirectToCheckout({
-        lineItems: [{ price: stripePriceId, quantity: 1 }],
-        mode: 'payment',
-        customerEmail: email,
-        successUrl,
-        cancelUrl
+export async function createCheckoutSession(eventId, fullName, email, paymentLink) {
+    // 1. Save pending RSVP to DynamoDB via Lambda (no Stripe call)
+    const res = await fetch(api.rsvpPending, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId, full_name: fullName, email })
     });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'Failed to save pending RSVP');
+    }
 
-    // Only reaches here if redirect failed
-    if (error) throw new Error(error.message);
+    // 2. Store user details in localStorage so payment-success.html can confirm RSVP
+    localStorage.setItem('pending_rsvp', JSON.stringify({ event_id: eventId, full_name: fullName, email }));
+
+    // 3. Redirect to Stripe Payment Link with prefilled email
+    const url = new URL(paymentLink);
+    url.searchParams.set('prefilled_email', email);
+    window.location.href = url.toString();
 }
 
 /**
@@ -76,24 +80,16 @@ export async function confirmPaymentRsvp(eventId, fullName, email) {
 
 export async function submitRsvp(eventId, fullName, email, response) {
     try {
-        console.log('Submitting RSVP to:', api.rsvp);
-        console.log('RSVP data:', { event_id: eventId, full_name: fullName, email, response });
-
         const response_data = await fetch(api.rsvp, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ event_id: eventId, full_name: fullName, email, response })
         });
 
-        console.log('Response status:', response_data.status);
-        console.log('Response ok:', response_data.ok);
-
         const result = await response_data.json();
-        console.log('Response data:', result);
 
         if (!response_data.ok) {
             const errorMessage = result?.message || result?.error || `HTTP ${response_data.status}`;
-            console.log('Throwing error:', errorMessage);
             throw new Error(errorMessage);
         }
 

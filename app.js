@@ -50,30 +50,20 @@ const selectors = {
 // Initialization
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🚀 Initializing Event RSVP System');
     setupEventListeners();
     loadEvents();
 });
 
 function setupEventListeners() {
-    console.log('Setting up event listeners...');
-    // Navigation
     const navBtns = document.querySelectorAll(selectors.navBtns);
-    console.log('Found nav buttons:', navBtns.length);
     navBtns.forEach(btn => {
-        console.log('Adding listener to button:', btn.textContent, btn.dataset.view);
         btn.addEventListener('click', (e) => {
-            console.log('NAV BUTTON CLICKED:', e.target.dataset.view);
             const view = e.target.dataset.view;
             showView(view);
-            if (view === 'events') {
-                console.log('Loading events...');
-                loadEvents();
-            }
+            if (view === 'events') loadEvents();
             setActive(document.querySelectorAll(selectors.navBtns), e.target);
         });
     });
-    console.log('Event listeners setup complete');
 
     // Event selection & form submission
     getElement(selectors.eventSelect).addEventListener('change', handleEventSelection);
@@ -99,10 +89,7 @@ function setupEventListeners() {
 // View Management
 // ============================================
 function showView(viewName) {
-    console.log('showView called with:', viewName);
-    document.querySelectorAll(selectors.views).forEach(view => {
-        view.classList.remove('active');
-    });
+    document.querySelectorAll(selectors.views).forEach(view => view.classList.remove('active'));
     getElement(`${viewName}-view`).classList.add('active');
 }
 
@@ -118,13 +105,11 @@ function selectEventAndNavigate(eventId) {
 // Events View
 // ============================================
 async function loadEvents() {
-    console.log('loadEvents function called');
     const container = getElement(selectors.eventsContainer);
     container.innerHTML = '<div class="loading">Loading events...</div>';
 
     state.events = await fetchEvents();
-    console.log('Fetched events:', state.events.length);
-    
+
     if (!state.events.length) {
         container.innerHTML = '<div class="empty-state">No events found</div>';
         return;
@@ -135,7 +120,7 @@ async function loadEvents() {
         const stats = await fetchEventStats(event.event_id);
         container.appendChild(createEventCard(event, stats));
     }
-    
+
     updateEventSelect(state.events);
 }
 
@@ -191,16 +176,14 @@ async function handleRsvpSubmit(e) {
         const eventDetails = await fetchEventDetails(eventId);
         const fee = parseFloat(eventDetails?.registration_fee || 0);
 
-        // Paid event — redirect to Stripe Checkout (only for "Yes" responses)
+        // Paid event — save pending RSVP then redirect to Stripe Payment Link
         if (fee > 0 && response === 'Yes') {
-            if (!eventDetails.stripe_price_id) {
+            if (!eventDetails.payment_link) {
                 showMessage('Payment not configured for this event. Please contact the organiser.', 'error');
                 return;
             }
             showMessage('Redirecting to payment...', 'info');
-            await createCheckoutSession(
-                eventId, fullName, email, fee, eventDetails.title, eventDetails.stripe_price_id
-            );
+            await createCheckoutSession(eventId, fullName, email, eventDetails.payment_link);
             return;
         }
 
@@ -216,8 +199,6 @@ async function handleRsvpSubmit(e) {
             getElement(selectors.eventSelect).value = '';
         }, 2000);
     } catch (error) {
-        console.log('RSVP Error caught:', error);
-
         let message = 'Failed to submit RSVP';
         let type = 'error';
         const errorMsg = error.message || '';

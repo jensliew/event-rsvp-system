@@ -13,7 +13,6 @@ export const handler = async (event) => {
 
   const method = event.requestContext?.http?.method;
   const path = event.requestContext?.http?.path;
-  const pathParams = event.pathParameters || {};
   const queryParams = event.queryStringParameters || {};
   const body = event.body ? JSON.parse(event.body) : {};
 
@@ -212,7 +211,7 @@ export const handler = async (event) => {
       });
 
       const [rows] = await conn.execute(`
-        SELECT event_id, title, description, start_at, venue, banner_url, created_at, registration_fee, stripe_price_id
+        SELECT event_id, title, description, start_at, venue, banner_url, registration_fee, payment_link
         FROM events
         ORDER BY start_at ASC
       `);
@@ -220,9 +219,9 @@ export const handler = async (event) => {
       return json(rows);
     }
 
-    // ========= [6] POST /payment-success =========
-    // Called by frontend after Stripe redirects back — writes RSVP to DynamoDB
-    if (method === "POST" && path === "/payment-success") {
+    // ========= [6] POST /rsvp-pending =========
+    // Saves a pending RSVP before redirecting to Stripe Payment Link
+    if (method === "POST" && path === "/rsvp-pending") {
       const { event_id, full_name, email } = body;
 
       if (!event_id || !full_name || !email) {
@@ -231,23 +230,55 @@ export const handler = async (event) => {
 
       const now = Date.now();
 
+      await dynamo.send(
+        new TransactWriteItemsCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: "event-rsvp-responses",
+                Item: {
+                  pk: { S: `EVENT#${event_id}` },
+                  sk: { S: `RESPONDENT#${email}` },
+                  full_name: { S: full_name },
+                  email: { S: email },
+                  response: { S: "Yes" },
+                  payment_status: { S: "pending" },
+                  timestamp: { N: String(now) }
+                },
+                // Allow overwrite if already pending (idempotent retry)
+                ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk) OR payment_status = :pending",
+                ExpressionAttributeValues: { ":pending": { S: "pending" } }
+              }
+            }
+          ]
+        })
+      );
+
+      return json({ message: "Pending RSVP saved" }, 200);
+    }
+
+    // ========= [7] POST /payment-success =========
+    // Called by frontend after Stripe redirects back — upgrades pending RSVP to confirmed
+    if (method === "POST" && path === "/payment-success") {
+      const { event_id, full_name, email } = body;
+
+      if (!event_id || !full_name || !email) {
+        return json({ message: "Missing fields" }, 400);
+      }
+
       try {
         await dynamo.send(
           new TransactWriteItemsCommand({
             TransactItems: [
               {
-                Put: {
+                Update: {
                   TableName: "event-rsvp-responses",
-                  Item: {
+                  Key: {
                     pk: { S: `EVENT#${event_id}` },
-                    sk: { S: `RESPONDENT#${email}` },
-                    full_name: { S: full_name },
-                    email: { S: email },
-                    response: { S: "Yes" },
-                    payment_status: { S: "paid" },
-                    timestamp: { N: String(now) }
+                    sk: { S: `RESPONDENT#${email}` }
                   },
-                  ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)"
+                  UpdateExpression: "SET payment_status = :paid",
+                  ExpressionAttributeValues: { ":paid": { S: "paid" } }
                 }
               },
               {
@@ -266,15 +297,8 @@ export const handler = async (event) => {
           })
         );
 
-        return json({ message: "RSVP recorded after payment!" }, 200);
+        return json({ message: "RSVP confirmed after payment!" }, 200);
       } catch (err) {
-        if (
-          err.name === "TransactionCanceledException" ||
-          err.name === "ConditionalCheckFailedException"
-        ) {
-          // Already RSVP'd — treat as success (idempotent)
-          return json({ message: "Already registered" }, 200);
-        }
         console.error('DynamoDB error after payment:', err);
         return json({ error: err.message }, 500);
       }
