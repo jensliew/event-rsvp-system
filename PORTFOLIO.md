@@ -222,4 +222,4 @@ Keeps all DynamoDB traffic within the AWS private network. No data traverses the
 
 ---
 
-*Built and deployed by [Your Name] — April 2026*
+*Built and deployed by [Jens Liew] — April 2026*
